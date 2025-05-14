@@ -9,54 +9,6 @@ The dataset contains 1,599 red wine samples from Portuguese "Vinho Verde" wines,
 11 physicochemical properties (input variables)
 Quality ratings on a scale of 0-10 (output variable)
 
-Source: UCI Machine Learning Repository
-Analysis Approach
-The analysis follows a comprehensive statistical workflow:
-
-Exploratory Data Analysis
-
-Summary statistics and data visualization
-Correlation analysis between quality and chemical properties
-Assessment of data distributions and relationships
-
-
-Regression Modeling
-
-Simple linear regression with alcohol content
-Multiple regression with key chemical properties
-Interaction effects between alcohol and acidity
-
-
-Assumption Verification
-
-Linearity assessment with residual plots
-Normality testing with QQ plots
-Homoscedasticity verification with Breusch-Pagan test
-Multicollinearity checks using VIF
-
-
-Handling Assumption Violations
-
-Robust standard errors for heteroscedasticity
-Variable transformations
-Bootstrap confidence intervals
-
-
-Variable Selection
-
-Stepwise selection with AIC
-Stepwise selection with BIC
-Model comparison and evaluation
-
-
-Results Interpretation
-
-Coefficient interpretation with practical significance
-Feature impact quantification
-Recommendations for winemakers
-
-
-
 Files Description
 
 Final_Project_Analysis.Rmd: R Markdown file containing all code and analysis
