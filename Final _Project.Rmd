@@ -1,0 +1,536 @@
+---
+title: "Final Project Analysis"
+author: "Yihong Deng"
+date: "2025-05-14"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    toc_float: true
+    theme: cosmo
+---
+
+# Introduction
+
+Wine quality assessment is traditionally performed by human experts through sensory evaluation, which can be subjective and resource-intensive. Developing objective models to predict wine quality based on physicochemical properties would enable more consistent quality control and potentially optimize production processes. This project investigated how specific chemical attributes of red wine influence its quality ratings and developed a predictive model that could assist winemakers in production decisions.
+
+## Dataset Description
+This analysis uses the "Red Wine Quality" dataset from Kaggle [1], which contains physicochemical properties and quality ratings for red wine variants of Portuguese "Vinho Verde" wine. The dataset was originally collected by P. Cortez et al. (2009) [2] and made available through the UCI Machine Learning Repository. It includes:
+
+- 11 physicochemical input variables (including acidity, pH, alcohol content, etc.)
+- 1 output variable (quality rating, scored between 0 and 10)
+- 1,599 observations
+
+The key research question is: **How do chemical attributes such as alcohol content, volatile acidity, and sulphates influence the quality of red wine, and can these predictors be used to build a reliable predictive model for wine quality?**
+
+
+# Methods
+I analyzed a wine quality dataset to understand how chemical properties affect wine ratings. After examining the data for missing values and checking distributions, I created scatterplots to explore relationships between quality and key variables like alcohol and acidity. I then built several linear regression models, starting with a simple model and expanding to include multiple predictors and interaction effects.
+To ensure my analysis was statistically sound, I checked the regression assumptions using residual plots and statistical tests. When I found issues like heteroscedasticity, I used robust standard errors and log transformations to correct them. I also applied forward and backward selection techniques to identify the most important chemical properties affecting wine quality, comparing the results using AIC and BIC criteria.
+
+# Data Analysis
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+# Packages needed
+library(lmtest)    
+library(sandwich)  
+library(lmboot)    
+```
+
+
+##Data Loading and Inspection
+
+```{r}
+wine_data <- read.csv("https://drive.google.com/uc?id=1UCrzhWxCZsEXSwV7bZ19Vq77ma2KWvbR")
+str(wine_data)
+head(wine_data)
+summary(wine_data)
+```
+
+##Missing Values and Data Completeness
+
+```{r}
+missing_values <- colSums(is.na(wine_data))
+print(missing_values)
+
+vars <- c("alcohol", "volatile.acidity", "sulphates", "quality")
+for (var in vars) {
+  if (any(is.na(wine_data[[var]]))) {
+    cat("Imputing missing values for variable:", var, "\n")
+    wine_data[[var]][is.na(wine_data[[var]])] <- mean(wine_data[[var]], na.rm = TRUE)
+  }
+}
+```
+
+##Distribution of Key Variables
+
+```{r}
+hist(wine_data$quality, 
+     main = "Distribution of Wine Quality Ratings",
+     xlab = "Quality Score", 
+     col = "pink",
+     breaks = 10)
+abline(v = mean(wine_data$quality), col = "#89CFF0", lwd = 2, lty = 2)
+
+# Histograms of key predictors
+par(mfrow = c(2, 2))
+hist(wine_data$alcohol, 
+     main = "Alcohol Content", xlab = "Alcohol (%)", col = "pink")
+hist(wine_data$volatile.acidity, 
+     main = "Volatile Acidity", xlab = "Volatile Acidity (g/dm^3)", col = "pink")
+hist(wine_data$sulphates, 
+     main = "Sulphates", xlab = "Sulphates (g/dm^3)", col = "pink")
+hist(wine_data$pH, 
+     main = "pH", xlab = "pH", col = "pink")
+par(mfrow = c(1, 1))
+```
+
+The quality scores range from 3 to 8, with most wines rated between 5 and 6. The mean quality score is 5.64.
+
+##Relationships Between Variables
+
+```{r}
+# Calculate individual correlations
+cor_alcohol <- cor(wine_data$alcohol, wine_data$quality)
+cor_volatile <- cor(wine_data$volatile.acidity, wine_data$quality)
+cor_sulphates <- cor(wine_data$sulphates, wine_data$quality)
+
+
+cat("Correlation between quality and alcohol:", round(cor_alcohol, 3), "\n")
+cat("Correlation between quality and volatile acidity:", round(cor_volatile, 3), "\n")
+cat("Correlation between quality and sulphates:", round(cor_sulphates, 3), "\n")
+
+# Create individual scatterplots
+par(mfrow = c(1, 3))
+plot(wine_data$alcohol, wine_data$quality, 
+     main = "Alcohol vs. Quality", 
+     xlab = "Alcohol", ylab = "Quality", 
+     pch = 19, col = "pink", cex = 0.7)
+abline(lm(quality ~ alcohol, data = wine_data), col = "#89CFF0")
+
+plot(wine_data$volatile.acidity, wine_data$quality, 
+     main = "Volatile Acidity vs. Quality", 
+     xlab = "Volatile Acidity", ylab = "Quality", 
+     pch = 19, col = "pink", cex = 0.7)
+abline(lm(quality ~ volatile.acidity, data = wine_data), col = "#89CFF0")
+
+plot(wine_data$sulphates, wine_data$quality, 
+     main = "Sulphates vs. Quality", 
+     xlab = "Sulphates", ylab = "Quality", 
+     pch = 19, col = "pink", cex = 0.7)
+abline(lm(quality ~ sulphates, data = wine_data), col = "#89CFF0")
+par(mfrow = c(1, 1))
+```
+
+The correlation coefficients show that alcohol has a positive correlation with quality (r = 0.48), volatile acidity has a negative correlation with quality (r = -0.39), and sulphates have a positive correlation with quality (r = 0.25).
+
+# Model Selections
+
+## Simple Linear Regression
+
+```{r}
+simple_model <- lm(quality ~ alcohol, data = wine_data)
+summary(simple_model)
+
+plot(wine_data$alcohol, wine_data$quality,
+     main = "Simple Linear Regression: Quality vs. Alcohol",
+     xlab = "Alcohol Content (%)", ylab = "Quality Rating",
+     pch = 19, col = "pink", cex = 0.7)
+abline(simple_model, col = "#89CFF0", lwd = 2)
+```
+
+Based on this simple linear model, if we compare two wines that differ by 1% in alcohol content, we would expect the wine with the higher alcohol content to have a quality rating that is 0.48 points higher.
+
+## Multiple Linear Regression with Two Predictors
+
+```{r}
+model_two <- lm(quality ~ alcohol + volatile.acidity, data = wine_data)
+summary(model_two)
+```
+
+After adding volatile acidity to the model, both predictors remain significant. If we compare two wines with the same volatile acidity but differ by 1% in alcohol content, we would expect the wine with the higher alcohol content to have a quality rating that is 0.31 points higher. Similarly, if we compare two wines with the same alcohol content but differ by 0.1 g/dm^3 in volatile acidity, we would expect the wine with the lower volatile acidity to have a quality rating that is approximately 0.12 points higher.
+
+##Multiple Linear Regression - Initial Model
+
+```{r}
+initial_model <- lm(quality ~ alcohol + volatile.acidity + sulphates, data = wine_data)
+summary(initial_model)
+
+# Calculate confidence intervals
+confint(initial_model)
+```
+
+The model with three predictors explains 33.6% of the variance in wine quality. If we compare two wines that are identical except for a 1% difference in alcohol content, we would expect the wine with higher alcohol to have a quality rating that is 0.3 points higher. If two wines differ by 0.1 g/dm^3 in volatile acidity, we would expect the wine with lower acidity to have a quality rating that is approximately 0.15 points higher. A 0.1 g/dm^3 increase in sulphates is associated with a 0.07 point increase in quality.
+
+## Interaction Effects Analysis
+
+```{r}
+interaction_model <- lm(quality ~ alcohol * volatile.acidity + sulphates, data = wine_data)
+summary(interaction_model)
+
+# Compare model with and without interaction
+anova(initial_model, interaction_model)
+
+# Visualize the interaction effect
+alcohol_range <- seq(min(wine_data$alcohol), max(wine_data$alcohol), length.out = 100)
+
+# Define low, medium, and high values of volatile acidity
+low_va <- quantile(wine_data$volatile.acidity, 0.1)  # 10th percentile
+med_va <- median(wine_data$volatile.acidity)         # 50th percentile
+high_va <- quantile(wine_data$volatile.acidity, 0.9) # 90th percentile
+
+# Plot interaction
+plot(alcohol_range, predict(interaction_model, 
+                          newdata = data.frame(alcohol = alcohol_range, 
+                                              volatile.acidity = low_va,
+                                              sulphates = median(wine_data$sulphates))),
+     type = "l", col = "#C7CEEA", lwd = 2,
+     xlab = "Alcohol Content", ylab = "Predicted Quality",
+     main = "Interaction between Alcohol and Volatile Acidity",
+     ylim = c(4.5, 7))
+
+lines(alcohol_range, predict(interaction_model, 
+                           newdata = data.frame(alcohol = alcohol_range, 
+                                               volatile.acidity = med_va,
+                                               sulphates = median(wine_data$sulphates))),
+      col = "#FFDAC1", lwd = 2)
+
+lines(alcohol_range, predict(interaction_model, 
+                           newdata = data.frame(alcohol = alcohol_range, 
+                                               volatile.acidity = high_va,
+                                               sulphates = median(wine_data$sulphates))),
+      col = "#E2F0CB", lwd = 2)
+
+legend("topleft", 
+       legend = c("Low Acidity (10th %)", "Medium Acidity (50th %)", "High Acidity (90th %)"),
+       col = c("#C7CEEA", "#FFDAC1", "#E2F0CB"), 
+       lwd = 2)
+```
+
+The interaction term is statistically significant (p = 0.02). The negative coefficient (-0.78) for the interaction term indicates that the positive effect of alcohol on quality is stronger at lower levels of volatile acidity. For wines with low volatile acidity (blue line), increasing alcohol content has a stronger positive effect on quality compared to wines with high volatile acidity (green line).
+
+#mRegression Assumptions Verification
+
+## Linearity Assessment
+
+```{r}
+
+# Residuals vs individual predictors
+par(mfrow = c(1, 3))
+plot(wine_data$alcohol, residuals(initial_model),
+     main = "Residuals vs Alcohol",
+     xlab = "Alcohol", ylab = "Residuals",
+     pch = 19, col = "pink", cex = 0.7)
+abline(h = 0, col = "#89CFF0", lwd = 2)
+
+plot(wine_data$volatile.acidity, residuals(initial_model),
+     main = "Residuals vs Volatile Acidity",
+     xlab = "Volatile Acidity", ylab = "Residuals",
+     pch = 19, col = "pink", cex = 0.7)
+abline(h = 0, col = "#89CFF0", lwd = 2)
+
+plot(wine_data$sulphates, residuals(initial_model),
+     main = "Residuals vs Sulphates",
+     xlab = "Sulphates", ylab = "Residuals",
+     pch = 19, col = "pink", cex = 0.7)
+abline(h = 0, col = "#89CFF0", lwd = 2)
+par(mfrow = c(1, 1))
+```
+
+The residual plots do not show obvious patterns, suggesting that the linearity assumption is reasonably satisfied. There is some slight curvature in the relationship with volatile acidity, which might benefit from transformation.
+
+## Normality of Residuals
+
+```{r}
+# QQ plot of residuals
+qqnorm(initial_model$residuals, main = "Normal Q-Q Plot of Residuals", 
+       pch = 19, col = "pink")
+abline(0, 1, col = "#89CFF0", lwd = 2, lty = 2)  # Using abline instead of qqline
+
+# Histogram of residuals
+hist(initial_model$residuals, breaks = 30, col = "pink",
+     main = "Histogram of Residuals", xlab = "Residuals")
+```
+
+The QQ plot shows some deviation from normality in the tails. The histogram of residuals is roughly symmetric but has some slight deviations from a normal distribution.
+
+##Homoscedasticity 
+
+```{r}
+# Plot residuals vs fitted values
+plot(initial_model$fitted.values, initial_model$residuals,
+     xlab = "Fitted Values", ylab = "Residuals",
+     main = "Residuals vs Fitted Values",
+     pch = 19, col = "pink", cex = 0.7)
+abline(h = 0, col = "#89CFF0", lwd = 2)
+
+# Breusch-Pagan test for homoscedasticity
+bp_test <- bptest(initial_model)
+print(bp_test)
+```
+
+The Breusch-Pagan test is significant (p-value < 0.001), indicating that the homoscedasticity assumption is violated. The residual plot shows some pattern with the variance changing with fitted values.
+
+## Multicollinearity Assessment
+
+```{r}
+# Check correlations between predictors
+pred_cor <- cor(wine_data[, c("alcohol", "volatile.acidity", "sulphates")])
+print(pred_cor)
+```
+
+The correlation matrix shows that the correlations between predictors are relatively low, with the highest being between alcohol and volatile acidity at approximately -0.2. Since these correlations are well below problematic levels (typically |r| > 0.7 would raise concerns), multicollinearity does not appear to be a significant issue in this model. This suggests that the predictors are providing largely independent information about wine quality
+
+## Independence og observations
+
+The independence assumption requires that observations are not correlated with each other. Since all wines come from the same Portuguese region, they may share production processes or vineyard conditions, potentially violating this assumption. Unlike other regression assumptions, independence cannot be directly assessed through statistical tests or plots.
+
+
+# Addressing Assumption Violations
+
+## Robust Standard Errors for Heteroscedasticity
+
+```{r}
+robust_se <- coeftest(initial_model, vcov = vcovHC(initial_model, type = "HC3"))
+print(robust_se)
+
+# Confidence intervals with robust standard errors
+robust_ci <- coefci(initial_model, vcov. = vcovHC(initial_model, type = "HC3"))
+print(robust_ci)
+```
+
+Using robust standard errors adjusts for the heteroscedasticity. The significance of the predictors remains unchanged, but the standard errors are now more appropriate given the violation of constant variance.
+
+## Bootstrap Confidence Intervals
+
+```{r}
+# Paired bootstrap for the initial model
+set.seed(123)
+paired_boot_results <- paired.boot(quality ~ alcohol + volatile.acidity + sulphates, 
+                                   data = wine_data, B = 1000)
+
+# Calculate percentile bootstrap confidence intervals
+boot_ci <- apply(paired_boot_results$bootEstParam, 2, quantile, probs = c(0.025, 0.975))
+colnames(boot_ci) <- c("Intercept", "alcohol", "volatile.acidity", "sulphates")
+print(boot_ci)
+
+# Compare bootstrap CIs with standard CIs
+std_ci <- confint(initial_model)
+robust_ci <- coefci(initial_model, vcov. = vcovHC(initial_model, type = "HC3"))
+
+ci_comparison <- data.frame(
+  Parameter = c("Intercept", "alcohol", "volatile.acidity", "sulphates"),
+  Standard_Lower = std_ci[,1],
+  Standard_Upper = std_ci[,2],
+  Robust_Lower = robust_ci[,1],
+  Robust_Upper = robust_ci[,2],
+  Bootstrap_Lower = boot_ci[1,],
+  Bootstrap_Upper = boot_ci[2,]
+)
+print(ci_comparison)
+```
+
+The bootstrap confidence intervals are similar to the robust confidence intervals, suggesting that our inferences about the coefficients are reasonably robust despite the violation of assumptions.
+
+## Variable Transformation
+
+```{r}
+# Create a new dataframe with transformed variables
+wine_data_transformed <- wine_data
+
+# Log-transform right-skewed variables
+wine_data_transformed$log_sulphates <- log(wine_data$sulphates)
+wine_data_transformed$log_volatile_acidity <- log(wine_data$volatile.acidity)
+
+# Fit the model with transformed variables
+transformed_model <- lm(quality ~ alcohol + log_volatile_acidity + log_sulphates, 
+                        data = wine_data_transformed)
+summary(transformed_model)
+
+# Check residuals vs fitted values after transformation
+plot(transformed_model$fitted.values, residuals(transformed_model),
+     main = "Residuals vs Fitted Values (Transformed Model)",
+     xlab = "Fitted Values", ylab = "Residuals",
+     pch = 19, col = "pink", cex = 0.7)
+abline(h = 0, col = "#89CFF0", lwd = 2)
+
+# Check normality of residuals after transformation
+qqnorm(transformed_model$residuals, 
+       main = "Normal Q-Q Plot of Residuals (Transformed Model)", 
+       pch = 19, col = "pink")
+abline(0, 1, col = "#89CFF0", lwd = 2, lty = 2)
+
+# Check homoscedasticity after transformation
+bptest(transformed_model)
+```
+
+Using log transformations for volatile acidity and sulphates improves the model fit slightly, with R² increasing from 0.336 to 0.343. However, the Breusch-Pagan test still indicates heteroscedasticity (p < 0.001).
+
+## Comparison of Original vs. Transformed Models
+
+```{r}
+# Compare model performance
+models_comparison <- data.frame(
+  Model = c("Original", "Log-Transformed"),
+  R_squared = c(summary(initial_model)$r.squared, summary(transformed_model)$r.squared),
+  Adj_R_squared = c(summary(initial_model)$adj.r.squared, summary(transformed_model)$adj.r.squared),
+  BP_Test_p = c(bptest(initial_model)$p.value, bptest(transformed_model)$p.value),
+  AIC = c(AIC(initial_model), AIC(transformed_model))
+)
+print(models_comparison)
+```
+
+The transformed model has a slightly higher $R^2$ and adjusted $R^2$, and a lower AIC value, indicating better fit. However, both models still show violations of the homoscedasticity assumption.
+
+#  Variable Selection 
+
+## Stepwise Selection Using AIC
+
+```{r}
+# Full model with all available predictors
+full_model <- lm(quality ~ ., data = wine_data)
+
+# Forward stepwise selection
+forward_model <- step(lm(quality ~ 1, data = wine_data), 
+                      scope = formula(full_model), 
+                      direction = "forward", 
+                      trace = FALSE)
+summary(forward_model)
+
+# Backward stepwise selection
+backward_model <- step(full_model, 
+                       direction = "backward", 
+                       trace = FALSE)
+summary(backward_model)
+
+# Compare models using AIC
+cat("AIC Values:\n")
+cat("Initial Model:", AIC(initial_model), "\n")
+cat("Forward Selection Model:", AIC(forward_model), "\n")
+cat("Backward Selection Model:", AIC(backward_model), "\n")
+
+# Compare adjusted $R^2$ values
+cat("\nAdjusted R² Values:\n")
+cat("Initial Model:", summary(initial_model)$adj.r.squared, "\n")
+cat("Forward Selection Model:", summary(forward_model)$adj.r.squared, "\n")
+cat("Backward Selection Model:", summary(backward_model)$adj.r.squared, "\n")
+```
+
+The forward and backward selection models identify a larger set of variables as significant predictors. Both selection methods result in models with higher adjusted R² values and lower AIC values compared to our initial three-predictor model.
+
+## Stepwise Selection Using BIC
+
+```{r}
+# Forward stepwise selection with BIC
+n <- nrow(wine_data)
+forward_model_BIC <- step(lm(quality ~ 1, data = wine_data), 
+                          scope = formula(full_model), 
+                          direction = "forward", 
+                          trace = FALSE,
+                          k = log(n))
+summary(forward_model_BIC)
+
+# Backward stepwise selection with BIC
+backward_model_BIC <- step(full_model, 
+                           direction = "backward", 
+                           trace = FALSE,
+                           k = log(n))
+summary(backward_model_BIC)
+
+# Compare models using BIC
+BIC_values <- c(
+  Initial = AIC(initial_model, k = log(n)),
+  Forward_AIC = AIC(forward_model, k = log(n)),
+  Backward_AIC = AIC(backward_model, k = log(n)),
+  Forward_BIC = AIC(forward_model_BIC, k = log(n)),
+  Backward_BIC = AIC(backward_model_BIC, k = log(n))
+)
+print(BIC_values)
+```
+
+The BIC-based selection methods result in more parsimonious models compared to AIC-based selection. The models selected by BIC include fewer predictors but still maintain good explanatory power.
+
+# Hypothesis Testing
+
+## Coefficient Interpretation for Final Model
+
+```{r}
+# Select final model based on AIC
+final_model <- forward_model
+
+# Coefficient summary 
+final_robust <- coeftest(final_model, vcov = vcovHC(final_model, type = "HC3"))
+print(final_robust)
+
+# Confidence intervals with robust standard errors
+final_ci <- coefci(final_model, vcov. = vcovHC(final_model, type = "HC3"))
+print(final_ci)
+```
+
+The final model includes alcohol, volatile acidity, sulphates, total sulfur dioxide, chlorides, pH, and fixed acidity as significant predictors. Using robust standard errors to account for heteroscedasticity, all coefficients remain statistically significant.
+
+## Practical Significance Analysis
+
+```{r}
+# Calculate expected change for realistic changes in key variables
+key_vars <- c("alcohol", "volatile.acidity", "sulphates")
+realistic_changes <- list(
+  alcohol = 1,  # 1% increase in alcohol
+  volatile.acidity = -0.1,  # 0.1 g/dm^3 decrease in volatile acidity
+  sulphates = 0.1  # 0.1 g/dm^3 increase in sulphates
+)
+
+practical_impact <- data.frame(
+  Variable = key_vars,
+  Realistic_Change = unlist(realistic_changes),
+  Expected_Quality_Change = NA
+)
+
+for (i in 1:length(key_vars)) {
+  var <- key_vars[i]
+  coef_val <- coef(final_model)[var]
+  change <- realistic_changes[[var]]
+  impact <- coef_val * change
+  
+  practical_impact$Expected_Quality_Change[i] <- impact
+}
+
+print(practical_impact)
+```
+
+A 1% increase in alcohol content is expected to increase quality by approximately 0.305 points. A 0.1 g/dm^3 decrease in volatile acidity is expected to increase quality by about 0.145 points. A 0.1 g/dm^3 increase in sulphates is expected to increase quality by approximately 0.688 points.
+
+# Conclusions
+
+Based on the linear regression analysis, I find that:
+
+1. Alcohol content, volatile acidity, and sulphates are consistently identified as significant predictors of wine quality across multiple models.
+
+2. There is a statistically significant interaction between alcohol content and volatile acidity, indicating that the positive effect of alcohol on quality is stronger when volatile acidity is lower.
+
+3. The model that best fits the data (according to AIC) includes alcohol, volatile acidity, sulphates, total sulfur dioxide, chlorides, pH, and fixed acidity as predictors, explaining approximately 44% of the variance in wine quality.
+
+4. The assumptions of homoscedasticity and normality are not perfectly satisfied, but using robust standard errors and bootstrap confidence intervals provides reliable inference despite these violations.
+
+
+5. Practical recommendations for winemakers:
+   - Increase alcohol content (expected quality improvement: +0.3 points per 1%)
+   - Decrease volatile acidity (expected quality improvement: +0.15 points per 0.1 g/dm^3 reduction)
+   - Increase sulphates (expected quality improvement: +0.7 points per 0.1 g/dm^3 increase)
+   - Pay attention to the interaction between alcohol and acidity
+
+6. Limitations:
+   - The dataset includes only red wines from a specific Portuguese region
+   - The analysis faces some limitations with regression assumptions. The models showed heteroscedasticity (non-constant variance) which was addressed using robust standard errors. Another concern is the independence assumption. Since all wines come from the same Portuguese region, they might share production processes or growing conditions that create hidden dependencies in the data. This makes it hard to confirm if observations are truly independent, which could affect the reliability of our statistical tests.
+   - The model explains 44% of quality variance, leaving 56% unexplained
+
+7. Future work could explore non-linear relationships, additional chemical interactions, and external validation with wines from different regions.
+
+# References
+
+[1] UCI Machine Learning. "Red Wine Quality." Kaggle, 2018. https://www.kaggle.com/datasets/uciml/red-wine-quality-cortez-et-al-2009 (accessed May 14, 2025).
+
+[2] P. Cortez, A. Cerdeira, F. Almeida, T. Matos, and J. Reis. "Modeling wine preferences by data mining from physicochemical properties." Decision Support Systems, vol. 47, no. 4, pp. 547-553, 2009.
