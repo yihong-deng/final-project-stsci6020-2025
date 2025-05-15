@@ -1,6 +1,7 @@
 # final-project-stsci6020-2025
 Final Project for BTRY6020
 Wine Quality Prediction: Linear Regression Analysis
+
 ##Project Overview
 This repository contains a statistical analysis of the Wine Quality dataset from the UCI Machine Learning Repository. The project explores how chemical properties of red wine influence quality ratings, using linear regression techniques to develop predictive models that could assist winemakers in production decisions.
 Dataset
